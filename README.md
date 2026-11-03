@@ -57,8 +57,6 @@ pip install -r requirements.txt
 
 **Note:** The listed versions correspond to the environment used for the experiments. GPU execution requires a compatible NVIDIA driver and CUDA-enabled PyTorch installation. Users may install a different version depending on their hardware, operating system, and CUDA requirements.
 
-**Important:** The command above is a starting point, not a validated complete environment specification. Install PyTorch separately and check the imports in the source files for any additional packages. Package versions have not been pinned or tested as a reproducible release.
-
 ## Data preparation
 
 The experiment runner expects paths to the following inputs:
