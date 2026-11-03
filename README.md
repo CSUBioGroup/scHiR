@@ -21,25 +21,41 @@ scHiR is a research-oriented PyTorch implementation for learning low-dimensional
 | `experiment.py` | Experiment configuration, parameter combinations, and execution. |
 | `utils.py` | Shared helper functions. |
 
-## Installation
+## Requirements
 
-Clone the repository:
+scHiR was developed and tested using the following software environment:
+
+- Python 3.13.12
+- PyTorch 2.6.0 (CUDA 12.4)
+- NumPy 2.2.4
+- Pandas 2.2.3
+- Scanpy 1.11.0
+- SciPy 1.15.2
+- Scikit-learn 1.5.2
+- tqdm 4.67.1
+
+### Installation
+
+Create and activate a Conda environment:
 
 ```bash
-git clone https://github.com/zhaoyichao777/scHiR.git
-cd scHiR
+conda create -n scHiR python=3.13
+conda activate scHiR
 ```
 
-Create a Python environment and install the scientific Python packages used by the project. For example:
+Install PyTorch with CUDA 12.4 support:
 
 ```bash
-conda create -n schir python=3.10 -y
-conda activate schir
-
-# Install a PyTorch build compatible with your system/CUDA setup.
-# See https://pytorch.org/get-started/locally/
-pip install numpy pandas scipy scikit-learn scanpy anndata matplotlib seaborn tqdm
+pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
 ```
+
+Install the remaining dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+**Note:** The listed versions correspond to the environment used for the experiments. GPU execution requires a compatible NVIDIA driver and CUDA-enabled PyTorch installation. Users may install a different version depending on their hardware, operating system, and CUDA requirements.
 
 **Important:** The command above is a starting point, not a validated complete environment specification. Install PyTorch separately and check the imports in the source files for any additional packages. Package versions have not been pinned or tested as a reproducible release.
 
