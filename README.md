@@ -64,7 +64,7 @@ pip install -r requirements.txt
 
 Place the two prepared input files in `data/` at the repository root. Default paths are resolved relative to the repository, independently of the working directory. The code consumes prepared chromosome contact matrices rather than raw Hi-C reads.
 
-### Hi-C input
+### scHi-C input
 
 The `.pkl` file must contain a cell-ordered collection. Each cell contains a chromosome-ordered collection of dense, two-dimensional NumPy contact matrices:
 
@@ -72,24 +72,28 @@ The `.pkl` file must contain a cell-ordered collection. Each cell contains a chr
 hic_data[cell_index][chromosome_index]  # shape: (n_bins, n_bins)
 ```
 
-Use the same chromosome order across cells and the same matrix size for each corresponding chromosome. For each matrix, the code crops both dimensions to multiples of four, converts to `float32`, applies `log1p`, clips at the 99th percentile, and divides by its maximum plus `1e-6`. This preprocessing is fixed in the code.
+Use the same chromosome order across cells and the same matrix size for each corresponding chromosome. 
 
-### RNA input
+### scRNA-seq input
 
-The RNA file must be a gene-by-cell count table, with gene names in the first column and cell names in the header. Tab- and comma-delimited files are supported through automatic delimiter detection.
+The scRNA-seq file must be a gene-by-cell count table, with gene names in the first column and cell names in the header. Tab- and comma-delimited files are supported through automatic delimiter detection.
 
 **The RNA columns must have exactly the same cell order as the Hi-C collection.** The loader checks cell counts but does not match or reorder cells across modalities.
-
-For feature selection, the code removes genes expressed in no cells, normalizes a copy of the RNA data to 10,000 counts per cell, applies `log1p`, and selects highly variable genes using Scanpy's `seurat` method. The encoder receives the original counts restricted to the selected genes. The default is 2,000 genes, and the loader requires exactly the requested number to be selected.
 
 ## Usage
 
 Run the following commands from the repository root.
 
-### Train and save results
+### Train and save embeddings
 
 ```bash
-python code/main.py --dataset hires_brain --save-artifacts
+python code/main.py --dataset hires_brain
+```
+
+By default, scHiR saves the joint `mu` embedding in `.npy` and `.csv` formats, together with training logs and fingerprints. Model checkpoints, other representations, processed input arrays, and reconstructed outputs are saved only when `--save-artifacts` is specified:
+
+```bash
+python code/main.py --save-artifacts
 ```
 
 The default configuration trains for 100 epochs on `cuda:0`. Results are written to a parameter-specific subdirectory under `hires_brain/`.
@@ -106,7 +110,7 @@ To run on CPU:
 python code/main.py --save-artifacts --device cpu
 ```
 
-Running `python code/main.py` without `--save-artifacts` trains the model and saves training logs and fingerprints, but does not save model checkpoints, embeddings, or reconstructed outputs.
+`--no-save-artifacts` explicitly selects the default embedding-only export. Training logs and fingerprints are retained in both modes.
 
 ### Latent feature attribution
 
@@ -142,45 +146,11 @@ To list command-line options:
 python code/main.py --help
 ```
 
-## Configuration
-
-Dataset paths, the output directory, the resolution label, and the number of epochs are defined in `code/configs.py`. Model and training defaults are grouped in `DEFAULT_PARAMS` in `code/experiment.py`:
-
-| Group | Parameter | Default |
-| --- | --- | --- |
-| Model and features | `mode` | `multi` |
-| Model and features | `n_genes` | `2000` |
-| Model and features | `hic_hid_dim` | `200` |
-| Model and features | `rna_hid_dim` | `128` |
-| Model and features | `rna_fc_layers` | `3` |
-| Model and features | `latent_dim` | `128` |
-| Model and features | `z_dim` | `32` |
-| Training | `batch_size` | `32` |
-| Training | `lr` | `5e-4` |
-| Training | `max_beta` | `0.05` |
-| Training | `vmf_sampling_warmup_epochs` | `10` |
-| Training | `device` | `cuda:0` |
-| Hi-C weighting | `hic_weight` | `1e-3` |
-| Hi-C weighting | `auto_balance_hic_weight` | `True` |
-| Hi-C weighting | `auto_balance_start_epoch` | `5` |
-| Hi-C weighting | `auto_balance_window` | `5` |
-| Anti-collapse | `anti_collapse_weight` | `3.0` |
-| Anti-collapse | `anti_collapse_target_r` | `0.75` |
-| Anti-collapse | `anti_collapse_start_epoch` | `1` |
-| Output and attribution | `save_artifacts` | `False` |
-| Output and attribution | `explain` | `False` |
-| Output and attribution | `explain_top_k` | `50` |
-| Output and attribution | `explain_rep` | `mu` |
-
-`latent_dim` is the intermediate encoder dimension; `z_dim` is the joint embedding dimension. The initial learning rate is adjusted by the existing plateau scheduler during the second half of training. vMF posterior sampling begins after the first 10 epochs; the KL coefficient follows a separate schedule based on the total number of epochs.
-
-Automatic Hi-C balancing updates the weight once, normally after epoch 5. It uses the median of the latest five candidate weights, each computed as `hic_weight × RNA loss / raw Hi-C loss`. The weight is clipped between `hic_weight × 0.001` and `hic_weight × 1000.0`; these bounds are fixed in the training code.
-
-`hic_resolution` and the `--hic-resolution` option provide a label for output naming and configuration records. They do not resample or change the resolution of the input contact matrices.
-
 ## Saved outputs
 
-With `--save-artifacts`, the run directory contains the following outputs, where `<epoch>` is the final training epoch:
+By default, the run directory contains `embedding_mu_epoch<epoch>.npy` and `embedding_mu_epoch<epoch>.csv`, as well as training logs, fingerprints, and the completion marker. Here, `<epoch>` is the final training epoch.
+
+With `--save-artifacts`, it additionally contains the full set of representations, model files, processed inputs, and reconstructed outputs listed below:
 
 | Output | Contents |
 | --- | --- |
@@ -197,7 +167,7 @@ With `--save-artifacts`, the run directory contains the following outputs, where
 | `output_schic_chr<idx>_epoch<epoch>.npy` | Hi-C decoder outputs for each chromosome |
 | `artifact_manifest.json` / `repro_bundle_files.txt` | Artifact descriptions and file listing |
 
-In joint mode, exported representations include `mu`, `pre_spherical`, `concentration`, `mu_scaled`, `z`, `rna_mu`, and `hic_mu`. The primary joint embedding is `mu`, the unit-normalized vMF direction. With the default configuration, it is saved as `embedding_mu_epoch100.npy` and `embedding_mu_epoch100.csv`, with shape `(n_cells, 32)`.
+With `--save-artifacts` in joint mode, exported representations include `mu`, `pre_spherical`, `concentration`, `mu_scaled`, `z`, `rna_mu`, and `hic_mu`. The primary joint embedding is `mu`, the unit-normalized vMF direction. With the default configuration, it is saved as `embedding_mu_epoch100.npy` and `embedding_mu_epoch100.csv`, with shape `(n_cells, 32)`.
 
 Hi-C reconstruction files contain raw decoder outputs. The training loss applies `softplus` plus `1e-8` to obtain positive Poisson rates. RNA reconstruction files already contain decoded rates.
 
@@ -208,11 +178,3 @@ With `--explain`, additional files are saved:
 - `latent_feature_mu_rna_top.csv`
 - `latent_feature_mu_hic_top.csv`
 - `latent_feature_mu_modality_summary.csv`
-
-## Reproducibility
-
-Random states are fixed in the code with a base seed of 0. DataLoader workers use `0 + worker_id`. Deterministic PyTorch settings are enabled, and TF32 is disabled.
-
-Run fingerprints record the software environment and data checksums. SHA256 fields track cell names and order, selected gene names and order, and the RNA encoder input matrix. These are diagnostic records and do not participate in training.
-
-For reproducibility, retain the same input data, cell and gene ordering, configuration, software environment, and hardware. A fixed seed alone does not guarantee identical results across different platforms or library versions.
