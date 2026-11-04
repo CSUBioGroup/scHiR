@@ -142,8 +142,7 @@ With `--save-artifacts`, it additionally contains the full set of representation
 | `model_checkpoint_epoch<epoch>.pt` | Model state dictionary and configuration |
 | `model_config_epoch<epoch>.json` | Model and training settings, dimensions, and data fingerprints |
 | `embedding_<rep>_epoch<epoch>.npy` / `.csv` | Latent representations in input cell order |
-| `input_encoder_scrna_epoch<epoch>.npy` | Selected RNA counts supplied to the encoder |
-| `input_encoder_scrna_genes_epoch<epoch>.txt` | Selected gene names in encoder input order |
+| `input_encoder_scrna_epoch<epoch>.npz` | Selected RNA counts (`counts`) and gene names in encoder input order (`gene_names`) |
 | `input_encoder_schic_epoch<epoch>.npz` | Preprocessed Hi-C encoder inputs |
 | `input_encoder_schic_chr<idx>_epoch<epoch>.npy` | Hi-C encoder inputs for each chromosome |
 | `output_scrna_epoch<epoch>.npy` | Decoded RNA rates |

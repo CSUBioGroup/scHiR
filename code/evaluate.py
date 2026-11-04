@@ -101,8 +101,7 @@ def export_model_outputs(
         model_config_epoch{epoch}.json
         embedding_{rep}_epoch{epoch}.npy
         embedding_{rep}_epoch{epoch}.csv
-        input_encoder_scrna_epoch{epoch}.npy
-        input_encoder_scrna_genes_epoch{epoch}.txt
+        input_encoder_scrna_epoch{epoch}.npz
         input_encoder_schic_epoch{epoch}.npz
         input_encoder_schic_chr{idx}_epoch{epoch}.npy
         output_scrna_epoch{epoch}.npy
@@ -180,19 +179,13 @@ def export_model_outputs(
 
     if input_rna_batches:
         input_rna = np.concatenate(input_rna_batches, axis=0)
-        input_rna_path = os.path.join(save_root, f"input_encoder_scrna_epoch{epoch}.npy")
-        np.save(input_rna_path, input_rna)
-        print(f"Saved encoder input scRNA to: {input_rna_path}")
+        input_rna_path = os.path.join(save_root, f"input_encoder_scrna_epoch{epoch}.npz")
         gene_names = getattr(dataset, "gene_names", None) if dataset is not None else None
+        rna_inputs = {"counts": input_rna}
         if gene_names is not None:
-            gene_path = os.path.join(
-                save_root,
-                f"input_encoder_scrna_genes_epoch{epoch}.txt",
-            )
-            with open(gene_path, "w") as f:
-                for gene_name in gene_names:
-                    f.write(f"{gene_name}\n")
-            print(f"Saved encoder input scRNA genes to: {gene_path}")
+            rna_inputs["gene_names"] = np.asarray(gene_names, dtype=str)
+        np.savez_compressed(input_rna_path, **rna_inputs)
+        print(f"Saved encoder input scRNA to: {input_rna_path}")
 
     if input_hic_batches:
         input_hic_outputs = {}
