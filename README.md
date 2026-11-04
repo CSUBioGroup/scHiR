@@ -2,8 +2,6 @@
 
 scHiR learns joint representations of paired single-cell RNA and Hi-C data using a variational autoencoder with a von Mises–Fisher (vMF) latent distribution. It supports joint embedding, reconstruction of both modalities, and gradient-based latent feature attribution.
 
-The included configuration uses the HiRES brain dataset. Training requires paired RNA and Hi-C inputs; no cell-type labels or metadata file is required.
-
 ## Requirements
 
 scHiR was developed and tested using the following software environment:
