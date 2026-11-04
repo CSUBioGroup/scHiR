@@ -168,14 +168,12 @@ def demo(
         mode=mode,
     )
 
-    dataloader_eval = None
-    if save_artifacts or explain:
-        dataloader_eval = create_dataloader_from_dataset(
-            dataset=dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            mode=mode,
-        )
+    dataloader_eval = create_dataloader_from_dataset(
+        dataset=dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        mode=mode,
+    )
 
     if save_artifacts:
         from evaluate import export_model_outputs
@@ -238,6 +236,15 @@ def demo(
         with open(manifest_path, "w") as f:
             json.dump(manifest, f, indent=2, sort_keys=True)
         print(f"Updated artifact manifest: {manifest_path}")
+    else:
+        from evaluate import export_embeddings
+        export_embeddings(
+            model=trained_model,
+            dataloader_eval=dataloader_eval,
+            device=device,
+            save_root=save_root,
+            epoch=epochs,
+        )
 
     if explain:
         from evaluate import explain_latent_features

@@ -41,6 +41,47 @@ def _decode_outputs(model, rna, hic):
     return pred_rna_rate, pred_hic
 
 
+def _save_embedding_batches(rep_arrays, save_root, epoch):
+    for rep_name, arrays in rep_arrays.items():
+        if not arrays:
+            continue
+        arr = np.concatenate(arrays, axis=0)
+        if not np.isfinite(arr).all():
+            raise ValueError(f"Latent contains NaN/Inf for rep={rep_name}")
+        rep_path = os.path.join(save_root, f"embedding_{rep_name}_epoch{epoch}.npy")
+        np.save(rep_path, arr)
+        print(f"Saved embedding_{rep_name} to: {rep_path}")
+        rep_csv_path = os.path.join(save_root, f"embedding_{rep_name}_epoch{epoch}.csv")
+        rep_df = pd.DataFrame(
+            arr,
+            columns=[f"{rep_name}_{i}" for i in range(arr.shape[1])],
+        )
+        rep_df.to_csv(rep_csv_path, index=False)
+        print(f"Saved embedding_{rep_name} CSV to: {rep_csv_path}")
+
+
+def export_embeddings(model, dataloader_eval, device, save_root, epoch):
+    """Save the joint mu embedding without checkpoints or reconstructed outputs."""
+    os.makedirs(save_root, exist_ok=True)
+    was_training = model.training
+    model.eval()
+    mu_batches = []
+    try:
+        with torch.no_grad():
+            for data in dataloader_eval:
+                rna, hic = _move_batch_for_inference(data, model, device)
+                mu, _, _ = model.combineEncoder(
+                    rna_x=rna,
+                    hic_x=hic,
+                    mode=model.mode,
+                    sample_posterior=False,
+                )
+                mu_batches.append(mu.detach().cpu().numpy())
+        _save_embedding_batches({"mu": mu_batches}, save_root, epoch)
+    finally:
+        model.train(was_training)
+
+
 def export_model_outputs(
     model,
     dataloader_eval,
@@ -135,22 +176,7 @@ def export_model_outputs(
                             chr_pred.detach().cpu().numpy().squeeze(1)
                         )
 
-    for rep_name, arrays in rep_arrays.items():
-        if not arrays:
-            continue
-        arr = np.concatenate(arrays, axis=0)
-        if not np.isfinite(arr).all():
-            raise ValueError(f"Latent contains NaN/Inf for rep={rep_name}")
-        rep_path = os.path.join(save_root, f"embedding_{rep_name}_epoch{epoch}.npy")
-        np.save(rep_path, arr)
-        print(f"Saved embedding_{rep_name} to: {rep_path}")
-        rep_csv_path = os.path.join(save_root, f"embedding_{rep_name}_epoch{epoch}.csv")
-        rep_df = pd.DataFrame(
-            arr,
-            columns=[f"{rep_name}_{i}" for i in range(arr.shape[1])],
-        )
-        rep_df.to_csv(rep_csv_path, index=False)
-        print(f"Saved embedding_{rep_name} CSV to: {rep_csv_path}")
+    _save_embedding_batches(rep_arrays, save_root, epoch)
 
     if input_rna_batches:
         input_rna = np.concatenate(input_rna_batches, axis=0)

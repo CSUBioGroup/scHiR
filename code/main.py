@@ -31,13 +31,13 @@ def parse_args():
         dest="save_artifacts",
         action="store_true",
         default=None,
-        help="Save trained model, embeddings, and decoded scRNA/scHiC outputs.",
+        help="Save all representations, trained model, processed inputs, and decoded outputs.",
     )
     artifact_group.add_argument(
         "--no-save-artifacts",
         dest="save_artifacts",
         action="store_false",
-        help="Do not save trained model, embeddings, or decoded scRNA/scHiC outputs.",
+        help="Save only the joint mu embedding, plus training logs and fingerprints (default).",
     )
 
     parser.add_argument("--hic-path", default=None)
