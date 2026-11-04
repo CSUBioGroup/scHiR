@@ -25,26 +25,19 @@ def parse_args():
         default=None,
         help="Top-k RNA genes / Hi-C contacts to save per latent dimension.",
     )
-    artifact_group = parser.add_mutually_exclusive_group()
-    artifact_group.add_argument(
+    parser.add_argument(
         "--save-artifacts",
         dest="save_artifacts",
         action="store_true",
         default=None,
         help="Save all representations, trained model, processed inputs, and decoded outputs.",
     )
-    artifact_group.add_argument(
-        "--no-save-artifacts",
-        dest="save_artifacts",
-        action="store_false",
-        help="Save only the joint mu embedding, plus training logs and fingerprints (default).",
-    )
+
 
     parser.add_argument("--hic-path", default=None)
     parser.add_argument("--rna-path", default=None)
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--device", default=None)
-    parser.add_argument("--skip-existing", action="store_true", help="Skip if --output-dir points directly to a completed run directory.")
     return parser.parse_args()
 
 
@@ -81,7 +74,6 @@ def main():
 
     run_experiment(
         overrides=overrides,
-        skip_existing=args.skip_existing,
     )
 
 

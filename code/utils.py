@@ -6,6 +6,7 @@ import torch
 
 
 def set_seed():
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
     torch.manual_seed(0)
     torch.cuda.manual_seed(0)
     torch.cuda.manual_seed_all(0)

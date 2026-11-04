@@ -104,14 +104,6 @@ To select another GPU:
 python code/main.py --save-artifacts --device cuda:1
 ```
 
-To run on CPU:
-
-```bash
-python code/main.py --save-artifacts --device cpu
-```
-
-`--no-save-artifacts` explicitly selects the default embedding-only export. Training logs and fingerprints are retained in both modes.
-
 ### Latent feature attribution
 
 ```bash
@@ -131,14 +123,6 @@ python code/main.py \
 ```
 
 Explicit relative path overrides are resolved from the current working directory. Custom inputs must follow the same data format and cell-order requirements.
-
-### Skip completed runs
-
-```bash
-python code/main.py --output-dir hires_brain/results_20261104_163025 --skip-existing
-```
-
-By default, each invocation creates a new timestamped run directory. To skip an explicitly selected completed run, pass that exact run directory to `--output-dir` together with `--skip-existing`, as shown above. It skips when `run_complete.json` is present directly in that directory. It does not search previous timestamped runs, resume interrupted training, or check the artifacts saved by a previous run.
 
 To list command-line options:
 

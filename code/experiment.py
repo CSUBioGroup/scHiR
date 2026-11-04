@@ -278,15 +278,8 @@ def build_save_paths(current_params):
             suffix += 1
 
 
-def run_experiment(overrides=None, skip_existing=False):
+def run_experiment(overrides=None):
     params = {**DEFAULT_PARAMS, **(overrides or {})}
-    # A timestamp creates a new run by default. Skip only an explicitly
-    # selected output directory that already contains a completed run.
-    completion_path = os.path.join(params.get("output_dir", "./hires_brain"), "run_complete.json")
-    if skip_existing and os.path.exists(completion_path):
-        print("Skip: run_complete.json already exists:", completion_path)
-        return None
-
     save_root = build_save_paths(params)
     params["save_root"] = save_root
 
