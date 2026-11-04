@@ -8,7 +8,6 @@ DATASET_CONFIGS = {
         "hic_path": "data/Hires_brain_cnn_1mb_sep_noimpute.pkl",
         "rna_path": "data/GSE223917_HiRES_brain.rna.umicount.tsv",
         "output_dir": "./hires_brain",
-        "hic_resolution": "1mb",
         "epochs": 100,
     },
 }

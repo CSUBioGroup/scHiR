@@ -43,9 +43,8 @@ def parse_args():
     parser.add_argument("--hic-path", default=None)
     parser.add_argument("--rna-path", default=None)
     parser.add_argument("--output-dir", default=None)
-    parser.add_argument("--hic-resolution", default=None)
     parser.add_argument("--device", default=None)
-    parser.add_argument("--skip-existing", action="store_true", help="Skip experiments with a completed training run.")
+    parser.add_argument("--skip-existing", action="store_true", help="Skip if --output-dir points directly to a completed run directory.")
     return parser.parse_args()
 
 
@@ -60,14 +59,11 @@ def main():
         dataset_config["rna_path"] = args.rna_path
     if args.output_dir is not None:
         dataset_config["output_dir"] = args.output_dir
-    if args.hic_resolution is not None:
-        dataset_config["hic_resolution"] = args.hic_resolution
 
     overrides = {
         "hic_path": dataset_config["hic_path"],
         "rna_path": dataset_config["rna_path"],
         "output_dir": dataset_config["output_dir"],
-        "hic_resolution": dataset_config["hic_resolution"],
         "epochs": dataset_config["epochs"],
     }
 

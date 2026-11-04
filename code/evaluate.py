@@ -236,10 +236,10 @@ def export_model_outputs(
             "full_model": os.path.basename(full_model_path),
             "checkpoint": os.path.basename(checkpoint_path),
             "model_config": os.path.basename(config_path),
-            "train_history": "train_history_seed0.csv",
+            "train_history": "train_history.csv",
             "run_fingerprint": "run_fingerprint.json",
             "first_batch_fingerprint": (
-                "first_batch_fingerprint_seed0.json"
+                "first_batch_fingerprint.json"
             ),
         },
         "notes": (

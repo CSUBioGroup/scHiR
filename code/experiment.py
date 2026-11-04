@@ -1,6 +1,7 @@
 import json
 import os
 import platform
+from datetime import datetime
 import torch
 
 from data import create_dataloader_from_dataset, create_multiomics_dataloader
@@ -9,7 +10,7 @@ from train import train_multiomics
 from utils import set_seed
 
 
-# Dataset paths, output directory, resolution and epochs come from configs.py
+# Dataset paths, output directory and epochs come from configs.py
 DEFAULT_PARAMS = {
     # Model architecture and input features
     "mode": "multi",
@@ -51,7 +52,6 @@ def demo(
     hic_path,
     rna_path,
     output_dir,
-    hic_resolution,
     epochs,
     save_root,
 
@@ -189,7 +189,6 @@ def demo(
             "batch_size": batch_size,
             "epochs": epochs,
             "lr": lr,
-            "hic_resolution": hic_resolution,
             "hic_weight": hic_weight,
             "auto_balance_hic_weight": auto_balance_hic_weight,
             "auto_balance_start_epoch": auto_balance_start_epoch,
@@ -265,49 +264,31 @@ def demo(
 
 
 def build_save_paths(current_params):
-    batch_size = current_params["batch_size"]
-    epochs = current_params["epochs"]
-    lr = current_params["lr"]
-    hic_resolution = current_params["hic_resolution"]
-    z_dim = current_params["z_dim"]
-    hic_weight = current_params["hic_weight"]
-    auto_balance_hic_weight = current_params["auto_balance_hic_weight"]
-    auto_balance_start_epoch = current_params["auto_balance_start_epoch"]
-    auto_balance_window = current_params["auto_balance_window"]
-    anti_collapse_weight = current_params["anti_collapse_weight"]
-    anti_collapse_target_r = current_params["anti_collapse_target_r"]
-    anti_collapse_start_epoch = current_params["anti_collapse_start_epoch"]
-    vmf_sampling_warmup_epochs = current_params["vmf_sampling_warmup_epochs"]
-    hic_hid_dim = current_params["hic_hid_dim"]
-    rna_fc_layers = current_params["rna_fc_layers"]
-    n_genes = current_params["n_genes"]
-    max_beta = current_params["max_beta"]
-    mode = current_params["mode"]
     output_dir = current_params.get("output_dir", "./hires_brain")
-
-    base = (
-        f"{output_dir.rstrip('/')}/"
-        f"seed0_batch{batch_size}_epochs{epochs}_lr{lr}_"
-        f"hicreso{hic_resolution}_zdim{z_dim}_hicratio{hic_weight}_hichiddim{hic_hid_dim}_"
-        f"rnafclayers{rna_fc_layers}_gmmhvg{n_genes}_maxbeta{max_beta}_"
-        f"hicbal{int(auto_balance_hic_weight)}e{auto_balance_start_epoch}w{auto_balance_window}"
-        "clip0.001-1000.0_"
-        f"collapse{anti_collapse_weight}r{anti_collapse_target_r}s{anti_collapse_start_epoch}_"
-        f"vmfwarm{vmf_sampling_warmup_epochs}_"
-        f"{mode}-poisson_vmf_spherical_stable"
-    )
-    return base
+    os.makedirs(output_dir, exist_ok=True)
+    name = datetime.now().strftime("results_%Y%m%d_%H%M%S")
+    suffix = 0
+    while True:
+        run_name = name if suffix == 0 else f"{name}_{suffix}"
+        save_root = os.path.join(output_dir, run_name)
+        try:
+            os.mkdir(save_root)
+            return save_root
+        except FileExistsError:
+            suffix += 1
 
 
 def run_experiment(overrides=None, skip_existing=False):
     params = {**DEFAULT_PARAMS, **(overrides or {})}
-    save_root = build_save_paths(params)
-    params["save_root"] = save_root
-
-    completion_path = os.path.join(save_root, "run_complete.json")
+    # A timestamp creates a new run by default. Skip only an explicitly
+    # selected output directory that already contains a completed run.
+    completion_path = os.path.join(params.get("output_dir", "./hires_brain"), "run_complete.json")
     if skip_existing and os.path.exists(completion_path):
         print("Skip: run_complete.json already exists:", completion_path)
         return None
+
+    save_root = build_save_paths(params)
+    params["save_root"] = save_root
 
     print("Parameters:", params)
     model = demo(**params)

@@ -96,7 +96,7 @@ By default, scHiR saves the joint `mu` embedding in `.npy` and `.csv` formats, t
 python code/main.py --save-artifacts
 ```
 
-The default configuration trains for 100 epochs on `cuda:0`. Results are written to a parameter-specific subdirectory under `hires_brain/`.
+The default configuration trains for 100 epochs on `cuda:0`. Results are written to a timestamped subdirectory such as `hires_brain/results_20261104_163025/`, using the local time of the machine running training. Runs started in the same second receive a numeric suffix to avoid overwriting existing results.
 
 To select another GPU:
 
@@ -135,10 +135,10 @@ Explicit relative path overrides are resolved from the current working directory
 ### Skip completed runs
 
 ```bash
-python code/main.py --save-artifacts --skip-existing
+python code/main.py --output-dir hires_brain/results_20261104_163025 --skip-existing
 ```
 
-This skips a run when its output directory contains `run_complete.json`. It does not resume interrupted training or check whether a previous run saved all artifacts requested by the current command.
+By default, each invocation creates a new timestamped run directory. To skip an explicitly selected completed run, pass that exact run directory to `--output-dir` together with `--skip-existing`, as shown above. It skips when `run_complete.json` is present directly in that directory. It does not search previous timestamped runs, resume interrupted training, or check the artifacts saved by a previous run.
 
 To list command-line options:
 
@@ -171,7 +171,7 @@ With `--save-artifacts` in joint mode, exported representations include `mu`, `p
 
 Hi-C reconstruction files contain raw decoder outputs. The training loss applies `softplus` plus `1e-8` to obtain positive Poisson rates. RNA reconstruction files already contain decoded rates.
 
-Training also writes `train_history_seed0.csv`, `run_fingerprint.json`, and `first_batch_fingerprint_seed0.json`. A successful run writes `run_complete.json` after all requested operations finish. Checkpoints contain the trained model, but not optimizer or scheduler state for resuming training.
+Training also writes `train_history.csv`, `run_fingerprint.json`, and `first_batch_fingerprint.json`. A successful run writes `run_complete.json` after all requested operations finish. Checkpoints contain the trained model, but not optimizer or scheduler state for resuming training.
 
 With `--explain`, additional files are saved:
 

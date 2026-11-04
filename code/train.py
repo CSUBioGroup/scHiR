@@ -63,7 +63,7 @@ def train_multiomics(
         os.makedirs(save_root, exist_ok=True)
         history_csv = os.path.join(
             save_root,
-            "train_history_seed0.csv"
+            "train_history.csv"
         )
     else:
         history_csv = None
@@ -148,7 +148,7 @@ def train_multiomics(
                 }
                 fingerprint_path = os.path.join(
                     save_root,
-                    "first_batch_fingerprint_seed0.json",
+                    "first_batch_fingerprint.json",
                 )
                 with open(fingerprint_path, "w") as f:
                     json.dump(
