@@ -1,0 +1,452 @@
+import os
+import time
+import json
+from collections import defaultdict
+
+import numpy as np
+import pandas as pd
+import torch
+
+
+def _move_batch_for_inference(data, model, device):
+    rna = None if model.mode == "hic_only" else data["rna"].to(device)
+    hic = None if model.mode == "rna_only" else [x.to(device) for x in data["hic"]]
+    return rna, hic
+
+
+def _decode_outputs(model, rna, hic):
+    if model.mode == "hic_only":
+        mu, logvar, z = model.combineEncoder(rna_x=None, hic_x=hic, mode="hic_only")
+        decode_z = mu
+        pred_hic = []
+        if model.combineDecoder.n_chr > 0:
+            z_expand = decode_z.unsqueeze(1).repeat(1, model.combineDecoder.n_chr, 1)
+            for i, decoder in enumerate(model.combineDecoder.HiCdecoder):
+                pred_hic.append(decoder(z_expand[:, i, :]))
+        return None, pred_hic
+
+    rna = torch.nan_to_num(rna, nan=0.0, posinf=0.0, neginf=0.0)
+    if model.mode == "rna_only":
+        mu, _, _ = model.combineEncoder(rna_x=rna, hic_x=None, mode="rna_only")
+    else:
+        mu, _, _ = model.combineEncoder(rna_x=rna, hic_x=hic, mode="multi")
+
+    decode_z = mu
+    _, _, log_l = model.libraryEncoder(rna)
+    _, _, pred_rna_rate, pred_hic = model.combineDecoder(
+        decode_z,
+        log_l,
+        decode_hic=(model.mode != "rna_only"),
+    )
+    return pred_rna_rate, pred_hic
+
+
+def export_model_outputs(
+    model,
+    dataloader_eval,
+    device,
+    save_root,
+    epoch,
+    model_config=None,
+    dataset=None,
+    save_outputs=True,
+):
+    """
+    Save the trained model, latent representations, and decoded outputs.
+
+    Saved files:
+        model_full_epoch{epoch}.pt
+        model_checkpoint_epoch{epoch}.pt
+        model_config_epoch{epoch}.json
+        embedding_{rep}_epoch{epoch}.npy
+        embedding_{rep}_epoch{epoch}.csv
+        input_encoder_scrna_epoch{epoch}.npy
+        input_encoder_scrna_genes_epoch{epoch}.txt
+        input_encoder_schic_epoch{epoch}.npz
+        input_encoder_schic_chr{idx}_epoch{epoch}.npy
+        output_scrna_epoch{epoch}.npy
+        output_schic_epoch{epoch}.npz
+        output_schic_chr{idx}_epoch{epoch}.npy
+    """
+    os.makedirs(save_root, exist_ok=True)
+    model.eval()
+
+    full_model_path = os.path.join(save_root, f"model_full_epoch{epoch}.pt")
+    checkpoint_path = os.path.join(save_root, f"model_checkpoint_epoch{epoch}.pt")
+    config_path = os.path.join(save_root, f"model_config_epoch{epoch}.json")
+
+    config_to_save = dict(model_config or {})
+    if dataset is not None:
+        config_to_save["dataset_fingerprint"] = (
+            dataset.fingerprint() if hasattr(dataset, "fingerprint") else None
+        )
+
+    torch.save(model, full_model_path)
+    torch.save(
+        {
+            "epoch": epoch,
+            "mode": model.mode,
+            "model_state_dict": model.state_dict(),
+            "model_config": config_to_save,
+            "z_dim": getattr(model, "z_dim", None),
+            "hic_weight": getattr(model, "hic_weight", None),
+            "n_genes": getattr(model, "n_genes", None),
+        },
+        checkpoint_path,
+    )
+    with open(config_path, "w") as f:
+        json.dump(config_to_save, f, indent=2, sort_keys=True)
+    print(f"Saved full model to: {full_model_path}")
+    print(f"Saved model checkpoint to: {checkpoint_path}")
+    print(f"Saved model config to: {config_path}")
+
+    rep_arrays = defaultdict(list)
+    input_rna_batches = []
+    input_hic_batches = None
+    pred_rna_batches = []
+    pred_hic_batches = None
+
+    with torch.no_grad():
+        for data in dataloader_eval:
+            rna, hic = _move_batch_for_inference(data, model, device)
+            if rna is not None:
+                input_rna_batches.append(rna.detach().cpu().numpy())
+            if hic is not None:
+                if input_hic_batches is None:
+                    input_hic_batches = [[] for _ in range(len(hic))]
+                for chr_idx, chr_input in enumerate(hic):
+                    input_hic_batches[chr_idx].append(
+                        chr_input.detach().cpu().numpy().squeeze(1)
+                    )
+
+            reps = model.get_all_representations(rna_x=rna, hic_x=hic)
+            for rep_name, rep_value in reps.items():
+                rep_arrays[rep_name].append(rep_value.detach().cpu().numpy())
+
+            if save_outputs:
+                pred_rna_rate, pred_hic = _decode_outputs(model, rna, hic)
+                if pred_rna_rate is not None:
+                    pred_rna_batches.append(pred_rna_rate.detach().cpu().numpy())
+                if pred_hic:
+                    if pred_hic_batches is None:
+                        pred_hic_batches = [[] for _ in range(len(pred_hic))]
+                    for chr_idx, chr_pred in enumerate(pred_hic):
+                        pred_hic_batches[chr_idx].append(
+                            chr_pred.detach().cpu().numpy().squeeze(1)
+                        )
+
+    for rep_name, arrays in rep_arrays.items():
+        if not arrays:
+            continue
+        arr = np.concatenate(arrays, axis=0)
+        if not np.isfinite(arr).all():
+            raise ValueError(f"Latent contains NaN/Inf for rep={rep_name}")
+        rep_path = os.path.join(save_root, f"embedding_{rep_name}_epoch{epoch}.npy")
+        np.save(rep_path, arr)
+        print(f"Saved embedding_{rep_name} to: {rep_path}")
+        rep_csv_path = os.path.join(save_root, f"embedding_{rep_name}_epoch{epoch}.csv")
+        rep_df = pd.DataFrame(
+            arr,
+            columns=[f"{rep_name}_{i}" for i in range(arr.shape[1])],
+        )
+        rep_df.to_csv(rep_csv_path, index=False)
+        print(f"Saved embedding_{rep_name} CSV to: {rep_csv_path}")
+
+    if input_rna_batches:
+        input_rna = np.concatenate(input_rna_batches, axis=0)
+        input_rna_path = os.path.join(save_root, f"input_encoder_scrna_epoch{epoch}.npy")
+        np.save(input_rna_path, input_rna)
+        print(f"Saved encoder input scRNA to: {input_rna_path}")
+        gene_names = getattr(dataset, "gene_names", None) if dataset is not None else None
+        if gene_names is not None:
+            gene_path = os.path.join(
+                save_root,
+                f"input_encoder_scrna_genes_epoch{epoch}.txt",
+            )
+            with open(gene_path, "w") as f:
+                for gene_name in gene_names:
+                    f.write(f"{gene_name}\n")
+            print(f"Saved encoder input scRNA genes to: {gene_path}")
+
+    if input_hic_batches:
+        input_hic_outputs = {}
+        for chr_idx, batches in enumerate(input_hic_batches):
+            arr = np.concatenate(batches, axis=0)
+            key = f"chr_{chr_idx}"
+            input_hic_outputs[key] = arr
+            chr_path = os.path.join(
+                save_root,
+                f"input_encoder_schic_chr{chr_idx}_epoch{epoch}.npy",
+            )
+            np.save(chr_path, arr)
+            print(f"Saved encoder input scHiC chr{chr_idx} to: {chr_path}")
+        hic_npz_path = os.path.join(save_root, f"input_encoder_schic_epoch{epoch}.npz")
+        np.savez_compressed(hic_npz_path, **input_hic_outputs)
+        print(f"Saved encoder input scHiC archive to: {hic_npz_path}")
+
+    if save_outputs and pred_rna_batches:
+        pred_rna = np.concatenate(pred_rna_batches, axis=0)
+        rna_path = os.path.join(save_root, f"output_scrna_epoch{epoch}.npy")
+        np.save(rna_path, pred_rna)
+        print(f"Saved output scRNA to: {rna_path}")
+
+    if save_outputs and pred_hic_batches:
+        hic_outputs = {}
+        for chr_idx, batches in enumerate(pred_hic_batches):
+            arr = np.concatenate(batches, axis=0)
+            key = f"chr_{chr_idx}"
+            hic_outputs[key] = arr
+            chr_path = os.path.join(save_root, f"output_schic_chr{chr_idx}_epoch{epoch}.npy")
+            np.save(chr_path, arr)
+            print(f"Saved output scHiC chr{chr_idx} to: {chr_path}")
+
+        hic_npz_path = os.path.join(save_root, f"output_schic_epoch{epoch}.npz")
+        np.savez_compressed(hic_npz_path, **hic_outputs)
+        print(f"Saved output scHiC archive to: {hic_npz_path}")
+
+    manifest = {
+        "epoch": epoch,
+        "files": {
+            "full_model": os.path.basename(full_model_path),
+            "checkpoint": os.path.basename(checkpoint_path),
+            "model_config": os.path.basename(config_path),
+            "train_history": "train_history_seed0.csv",
+            "run_fingerprint": "run_fingerprint.json",
+            "first_batch_fingerprint": (
+                "first_batch_fingerprint_seed0.json"
+            ),
+        },
+        "notes": (
+            "This folder is intended as a frozen result bundle. "
+            "Use saved embeddings, model outputs, model checkpoint, processed inputs, "
+            "and fingerprints for downstream/reviewer analyses without retraining."
+        ),
+    }
+    manifest_path = os.path.join(save_root, "artifact_manifest.json")
+    with open(manifest_path, "w") as f:
+        json.dump(manifest, f, indent=2, sort_keys=True)
+    print(f"Saved artifact manifest to: {manifest_path}")
+
+    model.train()
+    return {
+        "full_model": full_model_path,
+        "checkpoint": checkpoint_path,
+        "model_config": config_path,
+        "manifest": manifest_path,
+    }
+
+def _move_batch_for_explain(data, model, device):
+    if model.mode == "hic_only":
+        rna = None
+    else:
+        rna = data["rna"].to(device).clone().detach().requires_grad_(True)
+
+    if model.mode == "rna_only":
+        hic = None
+    else:
+        hic = [
+            x.to(device).clone().detach().requires_grad_(True)
+            for x in data["hic"]
+        ]
+
+    return rna, hic
+
+
+def _get_representation(model, rna, hic, rep_name):
+    if model.mode == "hic_only":
+        mu, concentration, z, pre_spherical = model.combineEncoder(
+            rna_x=None,
+            hic_x=hic,
+            mode="hic_only",
+            return_pre_spherical=True,
+        )
+        rep_map = {
+            "mu": mu,
+            "pre_spherical": pre_spherical,
+            "mu_scaled": mu * torch.log1p(concentration),
+            "concentration": concentration,
+            "z": z,
+        }
+    elif model.mode == "rna_only":
+        mu, concentration, z, pre_spherical = model.combineEncoder(
+            rna_x=rna,
+            hic_x=None,
+            mode="rna_only",
+            return_pre_spherical=True,
+        )
+        rep_map = {
+            "mu": mu,
+            "pre_spherical": pre_spherical,
+            "mu_scaled": mu * torch.log1p(concentration),
+            "concentration": concentration,
+            "z": z,
+        }
+    else:
+        rep_map = model.get_all_representations(rna_x=rna, hic_x=hic)
+
+    if rep_name not in rep_map:
+        raise ValueError(f"{rep_name} not found. Available reps: {list(rep_map.keys())}")
+    return rep_map[rep_name]
+
+
+def explain_latent_features(
+    model,
+    dataloader_eval,
+    dataset,
+    device,
+    save_root,
+    rep_name="mu",
+    top_k=50,
+):
+    """
+    Explain each latent feature with gradient * input attribution.
+
+    For each latent dimension, the score is the mean latent value across all
+    cells in the evaluation dataset:
+        sum(rep[batch_cells, latent_dim]) / n_total_samples
+
+    Outputs:
+        latent_feature_rna_top.csv
+        latent_feature_hic_top.csv
+        latent_feature_modality_summary.csv
+    """
+    if model.mode not in {"multi", "rna_only", "hic_only"}:
+        raise ValueError(f"Unknown mode: {model.mode}")
+
+    os.makedirs(save_root, exist_ok=True)
+    model.eval()
+
+    rna_rows = []
+    hic_rows = []
+    summary_rows = []
+    gene_names = getattr(dataset, "gene_names", None)
+    n_total_samples = len(dataset)
+
+    for latent_dim in range(model.z_dim):
+        rna_scores = None
+        hic_scores = None
+        n_samples = 0
+
+        for data in dataloader_eval:
+            rna, hic = _move_batch_for_explain(data, model, device)
+            batch_size = data["hic"][0].shape[0] if model.mode == "hic_only" else data["rna"].shape[0]
+            n_samples += batch_size
+
+            rep = _get_representation(model, rna, hic, rep_name)
+            if latent_dim >= rep.shape[1]:
+                raise ValueError(f"latent_dim={latent_dim} is out of range for rep={rep_name} with shape={rep.shape}")
+
+            score = rep[:, latent_dim].sum() / float(n_total_samples)
+            model.zero_grad(set_to_none=True)
+            score.backward()
+
+            if rna is not None:
+                batch_rna_attr = (rna.grad * rna).detach().abs().sum(dim=0).cpu()
+                rna_scores = batch_rna_attr if rna_scores is None else rna_scores + batch_rna_attr
+
+            if hic is not None:
+                batch_hic_scores = [
+                    (x.grad * x).detach().abs().sum(dim=0).squeeze(0).cpu()
+                    for x in hic
+                ]
+                if hic_scores is None:
+                    hic_scores = batch_hic_scores
+                else:
+                    hic_scores = [
+                        old + new
+                        for old, new in zip(hic_scores, batch_hic_scores)
+                    ]
+
+        rna_total = float(rna_scores.sum().item()) if rna_scores is not None else 0.0
+        hic_total = float(sum(x.sum().item() for x in hic_scores)) if hic_scores is not None else 0.0
+        raw_total = rna_total + hic_total
+
+        rna_num_features = int(rna_scores.numel()) if rna_scores is not None else 0
+        hic_num_features = int(sum(x.numel() for x in hic_scores)) if hic_scores is not None else 0
+
+        rna_mean_attr = rna_total / rna_num_features if rna_num_features > 0 else np.nan
+        hic_mean_attr = hic_total / hic_num_features if hic_num_features > 0 else np.nan
+
+        if rna_scores is not None:
+            rna_top_values, rna_top_indices = torch.topk(
+                rna_scores,
+                k=min(top_k, rna_scores.numel()),
+            )
+            rna_topk_mean_attr = float(rna_top_values.mean().item())
+        else:
+            rna_top_values, rna_top_indices = None, None
+            rna_topk_mean_attr = np.nan
+
+        if hic_scores is not None:
+            hic_flat_all = torch.cat([x.reshape(-1) for x in hic_scores])
+            hic_top_values_all, _ = torch.topk(
+                hic_flat_all,
+                k=min(top_k, hic_flat_all.numel()),
+            )
+            hic_topk_mean_attr = float(hic_top_values_all.mean().item())
+        else:
+            hic_topk_mean_attr = np.nan
+
+        summary_rows.append({
+            "latent_dim": latent_dim,
+            "rep": rep_name,
+            "n_samples": n_samples,
+            "rna_total_attr": rna_total,
+            "hic_total_attr": hic_total,
+            "rna_num_features": rna_num_features,
+            "hic_num_features": hic_num_features,
+            "rna_mean_attr": rna_mean_attr,
+            "hic_mean_attr": hic_mean_attr,
+            "rna_topk_mean_attr": rna_topk_mean_attr,
+            "hic_topk_mean_attr": hic_topk_mean_attr,
+            "rna_raw_sum_fraction": rna_total / raw_total if raw_total > 0 else np.nan,
+            "hic_raw_sum_fraction": hic_total / raw_total if raw_total > 0 else np.nan,
+        })
+
+        if rna_scores is not None:
+            for rank, (idx, value) in enumerate(zip(rna_top_indices.tolist(), rna_top_values.tolist()), start=1):
+                rna_rows.append({
+                    "latent_dim": latent_dim,
+                    "rep": rep_name,
+                    "rank": rank,
+                    "gene_idx": idx,
+                    "gene_name": gene_names[idx] if gene_names is not None else str(idx),
+                    "attribution": value,
+                })
+
+        if hic_scores is not None:
+            for chr_idx, chr_scores in enumerate(hic_scores):
+                flat = chr_scores.reshape(-1)
+                values, indices = torch.topk(flat, k=min(top_k, flat.numel()))
+                width = chr_scores.shape[1]
+                for rank, (flat_idx, value) in enumerate(zip(indices.tolist(), values.tolist()), start=1):
+                    bin_i = flat_idx // width
+                    bin_j = flat_idx % width
+                    hic_rows.append({
+                        "latent_dim": latent_dim,
+                        "rep": rep_name,
+                        "chr_idx": chr_idx,
+                        "rank": rank,
+                        "bin_i": bin_i,
+                        "bin_j": bin_j,
+                        "attribution": value,
+                    })
+
+    rna_path = os.path.join(save_root, f"latent_feature_{rep_name}_rna_top.csv")
+    hic_path = os.path.join(save_root, f"latent_feature_{rep_name}_hic_top.csv")
+    summary_path = os.path.join(save_root, f"latent_feature_{rep_name}_modality_summary.csv")
+
+    pd.DataFrame(rna_rows).to_csv(rna_path, index=False)
+    pd.DataFrame(hic_rows).to_csv(hic_path, index=False)
+    pd.DataFrame(summary_rows).to_csv(summary_path, index=False)
+
+    print(f"Saved latent RNA attribution to: {rna_path}")
+    print(f"Saved latent HiC attribution to: {hic_path}")
+    print(f"Saved latent modality summary to: {summary_path}")
+
+    model.train()
+    return {
+        "rna_top": rna_path,
+        "hic_top": hic_path,
+        "summary": summary_path,
+    }
